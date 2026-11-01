@@ -14,6 +14,8 @@ from archivum.core.config import AppConfig
 from archivum.core.database import Database
 from archivum.core.scanner import MediaScanner
 from archivum.core.library import LibraryIntake
+from archivum.core.tmdb import TMDBClient, TMDBError, apply_movie_metadata
+from archivum.core.tmdb_credentials import TMDBCredentials
 from archivum.ui.theme import APP_STYLE
 
 
@@ -261,8 +263,54 @@ class MainWindow(QMainWindow):
         intake_layout.addLayout(intake_actions)
         layout.addWidget(intake_panel)
 
-        self.movie_table = QTableWidget(0, 4)
-        self.movie_table.setHorizontalHeaderLabels(["Título", "Título original", "Año", "Estado"])
+        tmdb_panel = QFrame()
+        tmdb_panel.setObjectName("Panel")
+        tmdb_layout = QVBoxLayout(tmdb_panel)
+        tmdb_layout.setContentsMargins(16, 14, 16, 14)
+        tmdb_layout.addWidget(QLabel("Identificación mediante TMDB"))
+        tmdb_search_row = QHBoxLayout()
+        self.tmdb_query_edit = QLineEdit()
+        self.tmdb_query_edit.setPlaceholderText("Título que quieres buscar en TMDB…")
+        tmdb_search_row.addWidget(self.tmdb_query_edit, 1)
+        self.tmdb_year_edit = QLineEdit()
+        self.tmdb_year_edit.setPlaceholderText("Año")
+        self.tmdb_year_edit.setMaximumWidth(90)
+        tmdb_search_row.addWidget(self.tmdb_year_edit)
+        search_tmdb = QPushButton("Buscar candidatos")
+        search_tmdb.setObjectName("Primary")
+        search_tmdb.clicked.connect(self.search_tmdb)
+        tmdb_search_row.addWidget(search_tmdb)
+        tmdb_layout.addLayout(tmdb_search_row)
+        self.tmdb_candidates = QTableWidget(0, 5)
+        self.tmdb_candidates.setHorizontalHeaderLabels(
+            ["TMDB ID", "Título", "Título original", "Estreno", "Puntuación"]
+        )
+        self.tmdb_candidates.setColumnHidden(0, True)
+        self.tmdb_candidates.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.tmdb_candidates.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.tmdb_candidates.horizontalHeader().setStretchLastSection(True)
+        self.tmdb_candidates.horizontalHeader().setSectionResizeMode(
+            1, self.tmdb_candidates.horizontalHeader().ResizeMode.Stretch
+        )
+        tmdb_layout.addWidget(self.tmdb_candidates)
+        tmdb_actions = QHBoxLayout()
+        identify_button = QPushButton("Confirmar identificación para película seleccionada")
+        identify_button.setObjectName("Primary")
+        identify_button.clicked.connect(self.import_selected_tmdb_candidate)
+        tmdb_actions.addWidget(identify_button)
+        tmdb_actions.addStretch()
+        tmdb_layout.addLayout(tmdb_actions)
+        self.tmdb_status = QLabel(
+            "Selecciona primero una ficha de la biblioteca. La importación requiere confirmación."
+        )
+        self.tmdb_status.setObjectName("Muted")
+        self.tmdb_status.setWordWrap(True)
+        tmdb_layout.addWidget(self.tmdb_status)
+        layout.addWidget(tmdb_panel)
+
+        self.movie_table = QTableWidget(0, 5)
+        self.movie_table.setHorizontalHeaderLabels(["ID", "Título", "Título original", "Año", "Estado"])
+        self.movie_table.setColumnHidden(0, True)
         self.movie_table.setAlternatingRowColors(True)
         self.movie_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.movie_table.horizontalHeader().setStretchLastSection(True)
@@ -272,6 +320,91 @@ class MainWindow(QMainWindow):
         self.refresh_movie_table()
         self.refresh_unassigned_files()
         return page
+
+    def search_tmdb(self):
+        query = self.tmdb_query_edit.text().strip()
+        year_text = self.tmdb_year_edit.text().strip()
+        year = None
+        if year_text:
+            if not year_text.isdigit() or not 1880 <= int(year_text) <= 2200:
+                QMessageBox.warning(self, "Año no válido", "Introduce un año entre 1880 y 2200.")
+                return
+            year = int(year_text)
+        try:
+            token = TMDBCredentials.load()
+            if not token:
+                raise TMDBError("Configura primero el Read Access Token en Configuración.")
+            candidates = TMDBClient(token).search_movies(query, year)
+        except Exception as exc:
+            QMessageBox.warning(self, "Error en la búsqueda TMDB", str(exc))
+            return
+        self.tmdb_candidates.setRowCount(len(candidates))
+        for row, candidate in enumerate(candidates):
+            values = [
+                str(candidate.get("id", "")),
+                candidate.get("title") or "",
+                candidate.get("original_title") or "",
+                candidate.get("release_date") or "—",
+                f"{float(candidate.get('vote_average') or 0):.1f}",
+            ]
+            for column, value in enumerate(values):
+                self.tmdb_candidates.setItem(row, column, QTableWidgetItem(value))
+        self.tmdb_status.setText(
+            f"TMDB devolvió {len(candidates)} candidato(s). Selecciona uno y una ficha local para comparar."
+        )
+
+    def import_selected_tmdb_candidate(self):
+        candidate_row = self.tmdb_candidates.currentRow()
+        movie_row = self.movie_table.currentRow()
+        if candidate_row < 0:
+            QMessageBox.information(self, "Selecciona un candidato", "Selecciona un resultado de TMDB.")
+            return
+        if movie_row < 0:
+            QMessageBox.information(
+                self, "Selecciona una película local",
+                "Selecciona primero la ficha de la biblioteca que quieres identificar."
+            )
+            return
+        tmdb_id = int(self.tmdb_candidates.item(candidate_row, 0).text())
+        local_movie_id = int(self.movie_table.item(movie_row, 0).text())
+        candidate_title = self.tmdb_candidates.item(candidate_row, 1).text()
+        candidate_year = self.tmdb_candidates.item(candidate_row, 3).text()
+        answer = QMessageBox.question(
+            self, "Confirmar identificación",
+            f"¿Vincular la ficha local seleccionada con este resultado de TMDB?\n\n"
+            f"{candidate_title} ({candidate_year})\nTMDB ID: {tmdb_id}\n\n"
+            "Se actualizarán los metadatos de la ficha. Los archivos de vídeo no se modificarán.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
+        try:
+            token = TMDBCredentials.load()
+            if not token:
+                raise TMDBError("No hay un token TMDB guardado.")
+            client = TMDBClient(token)
+            details = client.movie_details(tmdb_id)
+            warnings = apply_movie_metadata(
+                self.database, local_movie_id, details, self.database.data_dir, client
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "No se pudo identificar la película", str(exc))
+            return
+        self.refresh_movie_table()
+        self.refresh_dashboard()
+        self.tmdb_status.setText(
+            f"Ficha identificada correctamente con TMDB ID {tmdb_id}."
+        )
+        if warnings:
+            QMessageBox.warning(
+                self, "Identificación completada con advertencias", "\n".join(warnings)
+            )
+        else:
+            QMessageBox.information(
+                self, "Identificación completada",
+                "Los metadatos se han importado. Los archivos originales permanecen intactos."
+            )
 
     def refresh_unassigned_files(self):
         files = self.library_intake.list_unassigned_files()
@@ -326,15 +459,15 @@ class MainWindow(QMainWindow):
             movies = session.scalars(select(Movie).order_by(Movie.title)).all()
             self.movie_table.setRowCount(len(movies))
             for row, movie in enumerate(movies):
-                values = [movie.title, movie.original_title or "", str(movie.year or ""), movie.status]
+                values = [str(movie.id), movie.title, movie.original_title or "", str(movie.year or ""), movie.status]
                 for column, value in enumerate(values):
                     self.movie_table.setItem(row, column, QTableWidgetItem(value))
 
     def filter_library(self, query: str):
         query = query.casefold().strip()
         for row in range(self.movie_table.rowCount()):
-            title = self.movie_table.item(row, 0).text().casefold()
-            original = self.movie_table.item(row, 1).text().casefold()
+            title = self.movie_table.item(row, 1).text().casefold()
+            original = self.movie_table.item(row, 2).text().casefold()
             self.movie_table.setRowHidden(row, query not in title and query not in original)
 
     def add_sample_movie(self):
@@ -486,6 +619,37 @@ class MainWindow(QMainWindow):
         warning.setObjectName("Muted")
         form.addWidget(warning)
 
+        tmdb_label = QLabel("Conexión con The Movie Database (TMDB)")
+        tmdb_label.setStyleSheet("font-weight: 650;")
+        form.addWidget(tmdb_label)
+        tmdb_description = QLabel(
+            "Pega el API Read Access Token de TMDB. Se guarda en el almacén seguro de credenciales "
+            "del sistema operativo; no se escribe en settings.json ni en la base de datos."
+        )
+        tmdb_description.setObjectName("Muted")
+        tmdb_description.setWordWrap(True)
+        form.addWidget(tmdb_description)
+        token_row = QHBoxLayout()
+        self.tmdb_token_edit = QLineEdit()
+        self.tmdb_token_edit.setEchoMode(QLineEdit.Password)
+        self.tmdb_token_edit.setPlaceholderText("API Read Access Token")
+        token_row.addWidget(self.tmdb_token_edit, 1)
+        save_token = QPushButton("Guardar token")
+        save_token.setObjectName("Primary")
+        save_token.clicked.connect(self.save_tmdb_token)
+        token_row.addWidget(save_token)
+        test_token = QPushButton("Probar conexión")
+        test_token.clicked.connect(self.test_tmdb_connection)
+        token_row.addWidget(test_token)
+        delete_token = QPushButton("Eliminar")
+        delete_token.clicked.connect(self.delete_tmdb_token)
+        token_row.addWidget(delete_token)
+        form.addLayout(token_row)
+        self.tmdb_credentials_status = QLabel("Estado de credenciales: comprobando…")
+        self.tmdb_credentials_status.setObjectName("Muted")
+        form.addWidget(self.tmdb_credentials_status)
+        self.refresh_tmdb_credential_status()
+
         buttons = QHBoxLayout()
         save = QPushButton("Guardar ubicación")
         save.setObjectName("Primary")
@@ -499,6 +663,56 @@ class MainWindow(QMainWindow):
         layout.addWidget(panel)
         layout.addStretch()
         return page
+
+    def refresh_tmdb_credential_status(self):
+        try:
+            configured = bool(TMDBCredentials.load())
+            self.tmdb_credentials_status.setText(
+                "Estado de credenciales: token guardado." if configured
+                else "Estado de credenciales: sin configurar."
+            )
+        except Exception as exc:
+            self.tmdb_credentials_status.setText(f"Almacén de credenciales no disponible: {exc}")
+
+    def save_tmdb_token(self):
+        token = self.tmdb_token_edit.text().strip()
+        if not token:
+            QMessageBox.warning(self, "Token vacío", "Pega primero el Read Access Token de TMDB.")
+            return
+        try:
+            TMDBCredentials.save(token)
+            self.tmdb_token_edit.clear()
+            self.refresh_tmdb_credential_status()
+            QMessageBox.information(
+                self, "Token guardado",
+                "El token se ha guardado en el almacén seguro de credenciales del sistema."
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "No se pudo guardar el token", str(exc))
+
+    def test_tmdb_connection(self):
+        try:
+            token = self.tmdb_token_edit.text().strip() or TMDBCredentials.load()
+            if not token:
+                raise TMDBError("Guarda o introduce primero el Read Access Token.")
+            if TMDBClient(token).test_connection():
+                QMessageBox.information(self, "TMDB conectado", "La autenticación con TMDB funciona.")
+        except Exception as exc:
+            QMessageBox.warning(self, "Error de conexión TMDB", str(exc))
+
+    def delete_tmdb_token(self):
+        answer = QMessageBox.question(
+            self, "Eliminar token TMDB",
+            "¿Eliminar el token guardado en el almacén de credenciales del sistema?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
+        try:
+            TMDBCredentials.delete()
+            self.refresh_tmdb_credential_status()
+        except Exception as exc:
+            QMessageBox.warning(self, "No se pudo eliminar el token", str(exc))
 
     def browse_data_dir(self):
         selected = QFileDialog.getExistingDirectory(
