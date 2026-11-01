@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import (
     QComboBox, QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit,
     QMainWindow, QMessageBox, QPushButton, QScrollArea, QStackedWidget,
@@ -11,7 +11,24 @@ from PySide6.QtWidgets import (
 
 from archivum.core.config import AppConfig
 from archivum.core.database import Database
+from archivum.core.scanner import MediaScanner
 from archivum.ui.theme import APP_STYLE
+
+
+class ScanWorker(QThread):
+    completed = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, scanner: MediaScanner, source_id: int):
+        super().__init__()
+        self.scanner = scanner
+        self.source_id = source_id
+
+    def run(self):
+        try:
+            self.completed.emit(self.scanner.scan_source(self.source_id))
+        except Exception as exc:
+            self.failed.emit(str(exc))
 
 
 class MainWindow(QMainWindow):
@@ -19,6 +36,8 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.config = config
         self.database = database
+        self.scanner = MediaScanner(database)
+        self.scan_worker = None
         self.setWindowTitle("ARCHIVUM — Biblioteca cinematográfica")
         self.resize(1280, 820)
         self.setMinimumSize(1000, 650)
@@ -268,18 +287,93 @@ class MainWindow(QMainWindow):
         panel_layout = QVBoxLayout(panel)
         panel_layout.setContentsMargins(20, 20, 20, 20)
         panel_layout.addWidget(QLabel("Ubicaciones registradas"))
-        self.source_table = QTableWidget(0, 3)
-        self.source_table.setHorizontalHeaderLabels(["Nombre", "Ruta raíz", "Estado"])
+        self.source_table = QTableWidget(0, 4)
+        self.source_table.setHorizontalHeaderLabels(["ID", "Nombre", "Ruta raíz", "Estado"])
+        self.source_table.setColumnHidden(0, True)
         self.source_table.horizontalHeader().setStretchLastSection(True)
-        self.source_table.horizontalHeader().setSectionResizeMode(1, self.source_table.horizontalHeader().ResizeMode.Stretch)
+        self.source_table.horizontalHeader().setSectionResizeMode(2, self.source_table.horizontalHeader().ResizeMode.Stretch)
         panel_layout.addWidget(self.source_table)
-        info = QLabel("Todavía no hay ubicaciones registradas. El botón de añadir estará disponible cuando implementemos el escáner.")
-        info.setObjectName("Muted")
-        info.setWordWrap(True)
-        panel_layout.addWidget(info)
+
+        actions = QHBoxLayout()
+        add_source = QPushButton("Añadir carpeta")
+        add_source.setObjectName("Primary")
+        add_source.clicked.connect(self.add_media_source)
+        actions.addWidget(add_source)
+        scan_source = QPushButton("Escanear ubicación seleccionada")
+        scan_source.clicked.connect(self.scan_selected_source)
+        actions.addWidget(scan_source)
+        refresh_sources = QPushButton("Actualizar lista")
+        refresh_sources.clicked.connect(self.refresh_sources)
+        actions.addWidget(refresh_sources)
+        actions.addStretch()
+        panel_layout.addLayout(actions)
+        self.scan_status = QLabel("El escaneo no modifica ni elimina archivos originales.")
+        self.scan_status.setObjectName("Muted")
+        self.scan_status.setWordWrap(True)
+        panel_layout.addWidget(self.scan_status)
         layout.addWidget(panel)
         layout.addStretch()
+        self.refresh_sources()
         return page
+
+
+    def refresh_sources(self):
+        sources = self.scanner.list_sources()
+        self.source_table.setRowCount(len(sources))
+        for row, source in enumerate(sources):
+            values = [str(source["id"]), source["name"], source["root_path"], source["status"]]
+            for column, value in enumerate(values):
+                self.source_table.setItem(row, column, QTableWidgetItem(value))
+
+    def add_media_source(self):
+        selected = QFileDialog.getExistingDirectory(
+            self, "Seleccionar carpeta o unidad para inventariar"
+        )
+        if not selected:
+            return
+        try:
+            self.scanner.add_source(Path(selected))
+            self.refresh_sources()
+            self.scan_status.setText("Ubicación registrada. Selecciónala y ejecuta el escaneo.")
+        except Exception as exc:
+            QMessageBox.warning(self, "No se pudo registrar la ubicación", str(exc))
+
+    def scan_selected_source(self):
+        if self.scan_worker is not None and self.scan_worker.isRunning():
+            QMessageBox.information(self, "Escaneo en curso", "Espera a que termine el escaneo actual.")
+            return
+        row = self.source_table.currentRow()
+        if row < 0:
+            QMessageBox.information(self, "Selecciona una ubicación", "Selecciona una carpeta de la lista.")
+            return
+        source_id = int(self.source_table.item(row, 0).text())
+        self.scan_status.setText("Escaneando… Puedes seguir utilizando la interfaz.")
+        self.scan_worker = ScanWorker(self.scanner, source_id)
+        self.scan_worker.completed.connect(self.on_scan_completed)
+        self.scan_worker.failed.connect(self.on_scan_failed)
+        self.scan_worker.start()
+
+    def on_scan_completed(self, result):
+        self.refresh_sources()
+        self.refresh_movie_table()
+        self.refresh_dashboard()
+        self.scan_status.setText(
+            f"Escaneo terminado: {result.files_found} archivos encontrados; "
+            f"{result.files_added} nuevos; {result.files_updated} modificados; "
+            f"{result.files_missing} no localizados; "
+            f"{result.duplicate_groups} grupos candidatos a duplicado; "
+            f"{result.probe_errors} errores de FFprobe."
+        )
+        if result.warnings:
+            QMessageBox.warning(
+                self, "Escaneo con advertencias",
+                "\\n".join(result.warnings[:15])
+            )
+
+    def on_scan_failed(self, message: str):
+        self.refresh_sources()
+        self.scan_status.setText("El escaneo terminó con un error.")
+        QMessageBox.critical(self, "Error de escaneo", message)
 
     def _build_settings(self):
         page, layout = self._page_shell(
