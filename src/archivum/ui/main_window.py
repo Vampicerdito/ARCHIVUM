@@ -382,6 +382,7 @@ class MainWindow(QMainWindow):
         self.tmdb_worker = TMDBWorker("search", token, query=query, year=year)
         self.tmdb_worker.completed.connect(self.on_tmdb_worker_completed)
         self.tmdb_worker.failed.connect(self.on_tmdb_worker_failed)
+        self.tmdb_worker.finished.connect(self.on_tmdb_worker_finished)
         self.tmdb_worker.start()
 
     def import_selected_tmdb_candidate(self):
@@ -459,11 +460,11 @@ class MainWindow(QMainWindow):
                     self, "Identificación completada",
                     "Los metadatos se han importado. Los archivos originales permanecen intactos."
                 )
-        self.tmdb_worker = None
 
     def on_tmdb_worker_failed(self, operation: str, message: str):
         self.tmdb_status.setText("La operación TMDB terminó con un error.")
         QMessageBox.warning(self, "Error TMDB", message)
+    def on_tmdb_worker_finished(self):
         self.tmdb_worker = None
 
     def refresh_unassigned_files(self):
