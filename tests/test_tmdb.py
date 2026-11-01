@@ -6,7 +6,7 @@ from sqlalchemy import select
 from archivum.core.database import Database
 from archivum.core.tmdb import TMDBClient, TMDBError, apply_movie_metadata
 from archivum.models.schema import (
-    Artwork, Genre, Identifier, Movie, MovieCredit, Person,
+    Artwork, Genre, Identifier, Movie, MovieCredit, MovieGenre, Person,
 )
 
 
@@ -129,11 +129,7 @@ def test_reidentification_replaces_previous_tmdb_link_genres_and_credits(tmp_pat
             )
         ).all()
         genres = session.scalars(
-            select(Genre).join(
-                __import__("archivum.models.schema", fromlist=["MovieGenre"]).MovieGenre
-            ).where(
-                __import__("archivum.models.schema", fromlist=["MovieGenre"]).MovieGenre.movie_id == movie_id
-            )
+            select(Genre).join(MovieGenre).where(MovieGenre.movie_id == movie_id)
         ).all()
         credits = session.scalars(
             select(MovieCredit).where(MovieCredit.movie_id == movie_id)
