@@ -4,7 +4,7 @@ Gestor privado de biblioteca cinematográfica para Windows. Versión de desarrol
 
 ## Estado de esta entrega
 
-Incluye la base de la Fase 1 y el primer módulo funcional de la Fase 2:
+Incluye la fundación (Fase 1), el inventario y la incorporación manual (Fase 2), y la identificación TMDB inicial (Fase 3):
 
 - Aplicación de escritorio PySide6 con navegación funcional.
 - Configuración persistente y ubicación de datos configurable.
@@ -28,7 +28,7 @@ de archivos multimedia quedan pendientes.
 
 - Windows 10/11 de 64 bits.
 - Python 3.12 o superior.
-- Conexión a Internet solo para instalar dependencias en esta fase.
+- Conexión a Internet para instalar dependencias y consultar TMDB/descargar artwork.
 
 ## Ejecutar desde el código fuente
 
