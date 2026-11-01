@@ -18,10 +18,11 @@ Incluye la base de la Fase 1 y el primer módulo funcional de la Fase 2:
 - Inventario persistente e idempotente de rutas, tamaños y fechas de modificación.
 - Extracción técnica opcional mediante FFprobe, si está instalado y disponible en PATH.
 - Detección de archivos nuevos, modificados, no localizados y candidatos a duplicados.
-- Pruebas iniciales de escaneo, repetición y desconexión de unidades.
+- Pruebas de base de datos, escaneo, incorporación manual e integración TMDB.
 
-Todavía no incluye identificación TMDB, descarga de carteles, análisis de subtítulos,
-renombrado ni modificación de archivos multimedia.
+Incluye búsqueda e identificación revisada mediante TMDB, importación de metadatos y
+caché local de carteles y fondos. El análisis de subtítulos y la organización automática
+de archivos multimedia quedan pendientes.
 
 ## Requisitos
 
