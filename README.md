@@ -1,6 +1,6 @@
 # ARCHIVUM
 
-Gestor privado de biblioteca cinematográfica para Windows. Versión inicial 0.1.0.
+Gestor privado de biblioteca cinematográfica para Windows. Versión de desarrollo 0.2.0.
 
 ## Estado de esta entrega
 
@@ -106,6 +106,21 @@ base de datos. Si una unidad completa no está disponible, su fuente se marca
 como `offline` y no se modifica la disponibilidad de sus archivos. Si el
 recorrido de carpetas fue parcial por errores de acceso, ARCHIVUM evita marcar
 en masa archivos como desaparecidos.
+
+## Incorporar archivos a la biblioteca
+
+Después de escanear una ubicación:
+
+1. Abre **Biblioteca**.
+2. En **Archivos inventariados sin ficha**, selecciona uno o varios archivos.
+3. Pulsa **Crear película con archivos seleccionados**.
+4. Introduce el título y, si se conoce, el año de estreno.
+5. ARCHIVUM crea una ficha y asocia los archivos seleccionados sin moverlos ni renombrarlos.
+
+Un archivo solo puede pertenecer a una película. La aplicación rechaza asignaciones
+duplicadas y registra la operación en el historial. Esta incorporación es manual:
+la identificación automática mediante TMDB y la revisión de candidatos se
+incorporarán en el siguiente bloque.
 
 ## Desarrollo
 
