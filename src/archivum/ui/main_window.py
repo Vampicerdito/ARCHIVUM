@@ -428,6 +428,7 @@ class MainWindow(QMainWindow):
         )
         self.tmdb_worker.completed.connect(self.on_tmdb_worker_completed)
         self.tmdb_worker.failed.connect(self.on_tmdb_worker_failed)
+        self.tmdb_worker.finished.connect(self.on_tmdb_worker_finished)
         self.tmdb_worker.start()
 
     def on_tmdb_worker_completed(self, operation: str, result):
