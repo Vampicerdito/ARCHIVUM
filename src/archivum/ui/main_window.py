@@ -35,6 +35,43 @@ class ScanWorker(QThread):
             self.failed.emit(str(exc))
 
 
+class TMDBWorker(QThread):
+    completed = Signal(str, object)
+    failed = Signal(str, str)
+
+    def __init__(
+        self, operation: str, token: str, *,
+        query: str = "", year: int | None = None,
+        database=None, movie_id: int | None = None,
+        tmdb_id: int | None = None, data_dir: Path | None = None,
+    ):
+        super().__init__()
+        self.operation = operation
+        self.token = token
+        self.query = query
+        self.year = year
+        self.database = database
+        self.movie_id = movie_id
+        self.tmdb_id = tmdb_id
+        self.data_dir = data_dir
+
+    def run(self):
+        try:
+            client = TMDBClient(self.token)
+            if self.operation == "search":
+                result = client.search_movies(self.query, self.year)
+            elif self.operation == "import":
+                details = client.movie_details(self.tmdb_id)
+                result = apply_movie_metadata(
+                    self.database, self.movie_id, details, self.data_dir, client
+                )
+            else:
+                raise ValueError("Operación TMDB desconocida.")
+            self.completed.emit(self.operation, result)
+        except Exception as exc:
+            self.failed.emit(self.operation, str(exc))
+
+
 class MainWindow(QMainWindow):
     def __init__(self, config: AppConfig, database: Database):
         super().__init__()
@@ -43,6 +80,7 @@ class MainWindow(QMainWindow):
         self.scanner = MediaScanner(database)
         self.library_intake = LibraryIntake(database)
         self.scan_worker = None
+        self.tmdb_worker = None
         self.setWindowTitle("ARCHIVUM — Biblioteca cinematográfica")
         self.resize(1280, 820)
         self.setMinimumSize(1000, 650)
@@ -322,6 +360,9 @@ class MainWindow(QMainWindow):
         return page
 
     def search_tmdb(self):
+        if self.tmdb_worker is not None and self.tmdb_worker.isRunning():
+            QMessageBox.information(self, "Operación en curso", "Espera a que termine la operación TMDB.")
+            return
         query = self.tmdb_query_edit.text().strip()
         year_text = self.tmdb_year_edit.text().strip()
         year = None
@@ -334,26 +375,19 @@ class MainWindow(QMainWindow):
             token = TMDBCredentials.load()
             if not token:
                 raise TMDBError("Configura primero el Read Access Token en Configuración.")
-            candidates = TMDBClient(token).search_movies(query, year)
         except Exception as exc:
-            QMessageBox.warning(self, "Error en la búsqueda TMDB", str(exc))
+            QMessageBox.warning(self, "Credenciales TMDB", str(exc))
             return
-        self.tmdb_candidates.setRowCount(len(candidates))
-        for row, candidate in enumerate(candidates):
-            values = [
-                str(candidate.get("id", "")),
-                candidate.get("title") or "",
-                candidate.get("original_title") or "",
-                candidate.get("release_date") or "—",
-                f"{float(candidate.get('vote_average') or 0):.1f}",
-            ]
-            for column, value in enumerate(values):
-                self.tmdb_candidates.setItem(row, column, QTableWidgetItem(value))
-        self.tmdb_status.setText(
-            f"TMDB devolvió {len(candidates)} candidato(s). Selecciona uno y una ficha local para comparar."
-        )
+        self.tmdb_status.setText("Buscando candidatos en TMDB…")
+        self.tmdb_worker = TMDBWorker("search", token, query=query, year=year)
+        self.tmdb_worker.completed.connect(self.on_tmdb_worker_completed)
+        self.tmdb_worker.failed.connect(self.on_tmdb_worker_failed)
+        self.tmdb_worker.start()
 
     def import_selected_tmdb_candidate(self):
+        if self.tmdb_worker is not None and self.tmdb_worker.isRunning():
+            QMessageBox.information(self, "Operación en curso", "Espera a que termine la operación TMDB.")
+            return
         candidate_row = self.tmdb_candidates.currentRow()
         movie_row = self.movie_table.currentRow()
         if candidate_row < 0:
@@ -383,28 +417,54 @@ class MainWindow(QMainWindow):
             token = TMDBCredentials.load()
             if not token:
                 raise TMDBError("No hay un token TMDB guardado.")
-            client = TMDBClient(token)
-            details = client.movie_details(tmdb_id)
-            warnings = apply_movie_metadata(
-                self.database, local_movie_id, details, self.database.data_dir, client
-            )
         except Exception as exc:
-            QMessageBox.critical(self, "No se pudo identificar la película", str(exc))
+            QMessageBox.warning(self, "Credenciales TMDB", str(exc))
             return
-        self.refresh_movie_table()
-        self.refresh_dashboard()
-        self.tmdb_status.setText(
-            f"Ficha identificada correctamente con TMDB ID {tmdb_id}."
+        self.tmdb_status.setText("Descargando metadatos y artwork…")
+        self.tmdb_worker = TMDBWorker(
+            "import", token, database=self.database, movie_id=local_movie_id,
+            tmdb_id=tmdb_id, data_dir=self.database.data_dir,
         )
-        if warnings:
-            QMessageBox.warning(
-                self, "Identificación completada con advertencias", "\n".join(warnings)
+        self.tmdb_worker.completed.connect(self.on_tmdb_worker_completed)
+        self.tmdb_worker.failed.connect(self.on_tmdb_worker_failed)
+        self.tmdb_worker.start()
+
+    def on_tmdb_worker_completed(self, operation: str, result):
+        if operation == "search":
+            self.tmdb_candidates.setRowCount(len(result))
+            for row, candidate in enumerate(result):
+                values = [
+                    str(candidate.get("id", "")),
+                    candidate.get("title") or "",
+                    candidate.get("original_title") or "",
+                    candidate.get("release_date") or "—",
+                    f"{float(candidate.get('vote_average') or 0):.1f}",
+                ]
+                for column, value in enumerate(values):
+                    self.tmdb_candidates.setItem(row, column, QTableWidgetItem(value))
+            self.tmdb_status.setText(
+                f"TMDB devolvió {len(result)} candidato(s). Selecciona uno y una ficha local para comparar."
             )
-        else:
-            QMessageBox.information(
-                self, "Identificación completada",
-                "Los metadatos se han importado. Los archivos originales permanecen intactos."
-            )
+        elif operation == "import":
+            warnings = result or []
+            self.refresh_movie_table()
+            self.refresh_dashboard()
+            self.tmdb_status.setText("Ficha identificada correctamente.")
+            if warnings:
+                QMessageBox.warning(
+                    self, "Identificación completada con advertencias", "\\n".join(warnings)
+                )
+            else:
+                QMessageBox.information(
+                    self, "Identificación completada",
+                    "Los metadatos se han importado. Los archivos originales permanecen intactos."
+                )
+        self.tmdb_worker = None
+
+    def on_tmdb_worker_failed(self, operation: str, message: str):
+        self.tmdb_status.setText("La operación TMDB terminó con un error.")
+        QMessageBox.warning(self, "Error TMDB", message)
+        self.tmdb_worker = None
 
     def refresh_unassigned_files(self):
         files = self.library_intake.list_unassigned_files()
@@ -768,6 +828,8 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         if self.scan_worker is not None and self.scan_worker.isRunning():
             self.scan_worker.wait()
+        if self.tmdb_worker is not None and self.tmdb_worker.isRunning():
+            self.tmdb_worker.wait()
         event.accept()
 
     def _placeholder(self, title: str, description: str):
