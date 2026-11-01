@@ -280,7 +280,7 @@ class MainWindow(QMainWindow):
     def _build_explorer(self):
         page, layout = self._page_shell(
             "Explorador de archivos",
-            "En esta fase se configura la futura exploración. El escaneo real de carpetas se implementará en la Fase 2."
+            "Registra carpetas o unidades y construye un inventario de los archivos de vídeo encontrados."
         )
         panel = QFrame()
         panel.setObjectName("Panel")
@@ -463,6 +463,11 @@ class MainWindow(QMainWindow):
             subprocess.Popen(["open", str(folder)])
         else:
             subprocess.Popen(["xdg-open", str(folder)])
+
+    def closeEvent(self, event):
+        if self.scan_worker is not None and self.scan_worker.isRunning():
+            self.scan_worker.wait()
+        event.accept()
 
     def _placeholder(self, title: str, description: str):
         page, layout = self._page_shell(title, description)
