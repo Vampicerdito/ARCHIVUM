@@ -21,6 +21,18 @@ class Database:
         self._create_directories()
         self._create_engine()
         Base.metadata.create_all(self.engine)
+        self._migrate_schema()
+
+    def _migrate_schema(self) -> None:
+        """Apply additive migrations to databases created by earlier versions."""
+        with self.engine.begin() as connection:
+            columns = {
+                row[1] for row in connection.exec_driver_sql("PRAGMA table_info(media_files)")
+            }
+            if "modified_at" not in columns:
+                connection.exec_driver_sql(
+                    "ALTER TABLE media_files ADD COLUMN modified_at DATETIME"
+                )
 
     def _create_directories(self) -> None:
         for relative in (
