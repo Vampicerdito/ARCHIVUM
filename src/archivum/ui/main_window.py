@@ -720,6 +720,10 @@ class MainWindow(QMainWindow):
         attribution.setOpenExternalLinks(True)
         form.addWidget(attribution)
 
+        credits_button = QPushButton("Acerca de ARCHIVUM · Créditos y licencias")
+        credits_button.clicked.connect(self.show_credits)
+        form.addWidget(credits_button)
+
         buttons = QHBoxLayout()
         save = QPushButton("Guardar ubicación")
         save.setObjectName("Primary")
@@ -733,6 +737,17 @@ class MainWindow(QMainWindow):
         layout.addWidget(panel)
         layout.addStretch()
         return page
+
+    def show_credits(self):
+        QMessageBox.about(
+            self,
+            "Acerca de ARCHIVUM · Créditos",
+            "ARCHIVUM — Gestor privado de biblioteca cinematográfica\\n\\n"
+            "Los metadatos y las imágenes de películas obtenidos mediante TMDB "
+            "pertenecen a sus respectivos titulares.\\n\\n"
+            "This product uses the TMDB API but is not endorsed or certified by TMDB.\\n\\n"
+            "The Movie Database: https://www.themoviedb.org",
+        )
 
     def refresh_tmdb_credential_status(self):
         try:
