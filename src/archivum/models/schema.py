@@ -93,6 +93,7 @@ class MediaFile(Base):
     filename: Mapped[str] = mapped_column(String(500), nullable=False)
     extension: Mapped[str | None] = mapped_column(String(20))
     size_bytes: Mapped[int | None] = mapped_column(Integer)
+    modified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     file_hash: Mapped[str | None] = mapped_column(String(128))
     container: Mapped[str | None] = mapped_column(String(40))
     video_codec: Mapped[str | None] = mapped_column(String(80))
