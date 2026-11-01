@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import sqlite3
 from pathlib import Path
 
 from sqlalchemy import create_engine, event, text
@@ -80,6 +79,7 @@ class Database:
         self._create_directories()
         self._create_engine()
         Base.metadata.create_all(self.engine)
+        self._migrate_schema()
 
     def health_check(self) -> bool:
         if self.engine is None:
