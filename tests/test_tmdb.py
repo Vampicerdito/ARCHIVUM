@@ -105,3 +105,41 @@ def test_tmdb_requires_non_empty_search_and_token():
     client = TMDBClient("test-token")
     with pytest.raises(TMDBError, match="título"):
         client.search_movies(" ")
+
+
+def test_reidentification_replaces_previous_tmdb_link_genres_and_credits(tmp_path):
+    database, movie_id = make_database(tmp_path)
+    first = {
+        "id": 100, "title": "First Match",
+        "genres": [{"id": 18, "name": "Drama"}],
+        "credits": {"cast": [{"id": 1, "name": "Actor A", "character": "A"}], "crew": []},
+    }
+    second = {
+        "id": 200, "title": "Second Match",
+        "genres": [{"id": 35, "name": "Comedy"}],
+        "credits": {"cast": [{"id": 2, "name": "Actor B", "character": "B"}], "crew": []},
+    }
+    apply_movie_metadata(database, movie_id, first, tmp_path / "data")
+    apply_movie_metadata(database, movie_id, second, tmp_path / "data")
+
+    with database.Session() as session:
+        tmdb_ids = session.scalars(
+            select(Identifier).where(
+                Identifier.movie_id == movie_id, Identifier.provider == "tmdb"
+            )
+        ).all()
+        genres = session.scalars(
+            select(Genre).join(
+                __import__("archivum.models.schema", fromlist=["MovieGenre"]).MovieGenre
+            ).where(
+                __import__("archivum.models.schema", fromlist=["MovieGenre"]).MovieGenre.movie_id == movie_id
+            )
+        ).all()
+        credits = session.scalars(
+            select(MovieCredit).where(MovieCredit.movie_id == movie_id)
+        ).all()
+        assert len(tmdb_ids) == 1
+        assert tmdb_ids[0].value == "200"
+        assert [genre.name for genre in genres] == ["Comedy"]
+        assert len(credits) == 1
+        assert credits[0].role == "B"
