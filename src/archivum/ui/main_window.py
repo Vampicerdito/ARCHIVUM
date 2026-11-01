@@ -453,7 +453,7 @@ class MainWindow(QMainWindow):
             self.tmdb_status.setText("Ficha identificada correctamente.")
             if warnings:
                 QMessageBox.warning(
-                    self, "Identificación completada con advertencias", "\\n".join(warnings)
+                    self, "Identificación completada con advertencias", "\n".join(warnings)
                 )
             else:
                 QMessageBox.information(
@@ -639,7 +639,7 @@ class MainWindow(QMainWindow):
         if result.warnings:
             QMessageBox.warning(
                 self, "Escaneo con advertencias",
-                "\\n".join(result.warnings[:15])
+                "\n".join(result.warnings[:15])
             )
 
     def on_scan_failed(self, message: str):
@@ -742,10 +742,10 @@ class MainWindow(QMainWindow):
         QMessageBox.about(
             self,
             "Acerca de ARCHIVUM · Créditos",
-            "ARCHIVUM — Gestor privado de biblioteca cinematográfica\\n\\n"
+            "ARCHIVUM — Gestor privado de biblioteca cinematográfica\n\n"
             "Los metadatos y las imágenes de películas obtenidos mediante TMDB "
-            "pertenecen a sus respectivos titulares.\\n\\n"
-            "This product uses the TMDB API but is not endorsed or certified by TMDB.\\n\\n"
+            "pertenecen a sus respectivos titulares.\n\n"
+            "This product uses the TMDB API but is not endorsed or certified by TMDB.\n\n"
             "The Movie Database: https://www.themoviedb.org",
         )
 
