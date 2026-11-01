@@ -11,7 +11,7 @@ def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("ARCHIVUM")
     app.setOrganizationName("ARCHIVUM")
-    app.setApplicationVersion("0.2.0")
+    app.setApplicationVersion("0.3.0")
 
     config = AppConfig.load()
     database = Database(config.data_dir)
