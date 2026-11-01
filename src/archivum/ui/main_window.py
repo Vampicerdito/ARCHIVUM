@@ -360,7 +360,7 @@ class MainWindow(QMainWindow):
         return page
 
     def search_tmdb(self):
-        if self.tmdb_worker is not None and self.tmdb_worker.isRunning():
+        if self.tmdb_worker is not None:
             QMessageBox.information(self, "Operación en curso", "Espera a que termine la operación TMDB.")
             return
         query = self.tmdb_query_edit.text().strip()
