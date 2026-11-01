@@ -8,7 +8,7 @@ import httpx
 from sqlalchemy import select
 
 from archivum.models.schema import (
-    Artwork, Genre, Identifier, Movie, MovieGenre, OperationLog,
+    Artwork, Genre, Identifier, Movie, MovieGenre, OperationLog, Person, MovieCredit,
 )
 
 API_BASE = "https://api.themoviedb.org/3"
@@ -83,7 +83,7 @@ class TMDBClient:
     def movie_details(self, tmdb_id: int, language: str = "es-ES") -> dict:
         return self._get(
             f"movie/{int(tmdb_id)}",
-            {"language": language, "append_to_response": "external_ids"},
+            {"language": language, "append_to_response": "external_ids,credits"},
         )
 
     def download_image(self, remote_path: str, destination: Path, size: str) -> Path:
@@ -196,6 +196,49 @@ def apply_movie_metadata(
             )
             if linked is None:
                 session.add(MovieGenre(movie_id=movie_id, genre_id=genre.id))
+
+        credits = details.get("credits") or {}
+        credit_items = []
+        for person_data in (credits.get("crew") or []):
+            if person_data.get("job") == "Director":
+                credit_items.append((person_data, "Directing", "Director", None))
+        for person_data in (credits.get("cast") or [])[:20]:
+            credit_items.append((
+                person_data, "Acting", person_data.get("character") or "Cast",
+                person_data.get("order"),
+            ))
+        for person_data, department, role, display_order in credit_items:
+            person_tmdb_id = person_data.get("id")
+            person_name = (person_data.get("name") or "").strip()
+            if not person_tmdb_id or not person_name:
+                continue
+            person = session.scalar(
+                select(Person).where(Person.tmdb_id == int(person_tmdb_id))
+            )
+            if person is None:
+                person = Person(
+                    name=person_name,
+                    tmdb_id=int(person_tmdb_id),
+                    profile_path=person_data.get("profile_path"),
+                )
+                session.add(person)
+                session.flush()
+            existing_credit = session.scalar(
+                select(MovieCredit).where(
+                    MovieCredit.movie_id == movie_id,
+                    MovieCredit.person_id == person.id,
+                    MovieCredit.department == department,
+                    MovieCredit.role == role,
+                )
+            )
+            if existing_credit is None:
+                session.add(MovieCredit(
+                    movie_id=movie_id,
+                    person_id=person.id,
+                    department=department,
+                    role=role,
+                    display_order=display_order,
+                ))
 
         image_jobs = (
             ("poster", details.get("poster_path"), "posters", "w500"),
