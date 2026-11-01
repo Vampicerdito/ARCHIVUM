@@ -314,8 +314,8 @@ class MainWindow(QMainWindow):
         self.movie_table.setAlternatingRowColors(True)
         self.movie_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.movie_table.horizontalHeader().setStretchLastSection(True)
-        self.movie_table.horizontalHeader().setSectionResizeMode(0, self.movie_table.horizontalHeader().ResizeMode.Stretch)
         self.movie_table.horizontalHeader().setSectionResizeMode(1, self.movie_table.horizontalHeader().ResizeMode.Stretch)
+        self.movie_table.horizontalHeader().setSectionResizeMode(2, self.movie_table.horizontalHeader().ResizeMode.Stretch)
         layout.addWidget(self.movie_table, 1)
         self.refresh_movie_table()
         self.refresh_unassigned_files()
@@ -649,6 +649,15 @@ class MainWindow(QMainWindow):
         self.tmdb_credentials_status.setObjectName("Muted")
         form.addWidget(self.tmdb_credentials_status)
         self.refresh_tmdb_credential_status()
+
+        attribution = QLabel(
+            'This product uses the TMDB API but is not endorsed or certified by TMDB. '
+            '<a href="https://www.themoviedb.org">The Movie Database</a>'
+        )
+        attribution.setObjectName("Muted")
+        attribution.setWordWrap(True)
+        attribution.setOpenExternalLinks(True)
+        form.addWidget(attribution)
 
         buttons = QHBoxLayout()
         save = QPushButton("Guardar ubicación")
