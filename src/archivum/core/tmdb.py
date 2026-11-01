@@ -5,7 +5,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from archivum.models.schema import (
     Artwork, Genre, Identifier, Movie, MovieGenre, OperationLog, Person, MovieCredit,
@@ -139,6 +139,13 @@ def apply_movie_metadata(
             raise TMDBError(
                 "Esta película de TMDB ya está vinculada a otra ficha de ARCHIVUM."
             )
+        current_tmdb_identifier = session.scalar(
+            select(Identifier).where(
+                Identifier.provider == "tmdb", Identifier.movie_id == movie_id
+            )
+        )
+        if current_tmdb_identifier and current_tmdb_identifier.value != str(tmdb_id):
+            session.delete(current_tmdb_identifier)
 
         movie.title = details.get("title") or movie.title
         movie.original_title = details.get("original_title") or movie.original_title
@@ -172,12 +179,23 @@ def apply_movie_metadata(
                     Identifier.provider == "imdb", Identifier.value == imdb_id
                 )
             )
+            current_imdb = session.scalar(
+                select(Identifier).where(
+                    Identifier.provider == "imdb", Identifier.movie_id == movie_id
+                )
+            )
             if imdb_existing and imdb_existing.movie_id != movie_id:
                 warnings.append("El identificador IMDb ya está asociado a otra ficha; se omitió.")
-            elif not imdb_existing:
-                session.add(Identifier(
-                    movie_id=movie_id, provider="imdb", value=imdb_id
-                ))
+            else:
+                if current_imdb and current_imdb.value != imdb_id:
+                    session.delete(current_imdb)
+                if not imdb_existing:
+                    session.add(Identifier(
+                        movie_id=movie_id, provider="imdb", value=imdb_id
+                    ))
+
+        session.execute(delete(MovieGenre).where(MovieGenre.movie_id == movie_id))
+        session.execute(delete(MovieCredit).where(MovieCredit.movie_id == movie_id))
 
         for genre_data in details.get("genres") or []:
             name = (genre_data.get("name") or "").strip()
