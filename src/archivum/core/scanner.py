@@ -166,7 +166,15 @@ class MediaScanner:
             seen: set[str] = set()
             now = datetime.now(timezone.utc)
 
-            for directory, dirnames, filenames in os.walk(root, followlinks=False):
+            traversal_errors: list[str] = []
+
+            def on_walk_error(error):
+                traversal_errors.append(str(error))
+                result.warnings.append(f"No se pudo recorrer una carpeta: {error}")
+
+            for directory, dirnames, filenames in os.walk(
+                root, followlinks=False, onerror=on_walk_error
+            ):
                 dirnames[:] = [
                     name for name in dirnames if not (Path(directory) / name).is_symlink()
                 ]
@@ -185,8 +193,11 @@ class MediaScanner:
                     modified = datetime.fromtimestamp(stat.st_mtime, timezone.utc)
                     item = by_path.get(normalized)
                     is_new = item is None
+                    previous_modified = item.modified_at if item else None
+                    if previous_modified and previous_modified.tzinfo is None:
+                        previous_modified = previous_modified.replace(tzinfo=timezone.utc)
                     is_changed = bool(item and (
-                        item.size_bytes != stat.st_size or item.modified_at != modified
+                        item.size_bytes != stat.st_size or previous_modified != modified
                     ))
                     if is_new:
                         item = MediaFile(
@@ -216,13 +227,15 @@ class MediaScanner:
                     item.availability = "available"
                     item.last_seen_at = now
 
-            for item in existing:
-                if normalize_path(Path(item.path)) not in seen:
-                    item.availability = "missing"
-                    result.files_missing += 1
+            # A partial traversal must never mark unseen files as missing.
+            if not traversal_errors:
+                for item in existing:
+                    if normalize_path(Path(item.path)) not in seen:
+                        item.availability = "missing"
+                        result.files_missing += 1
 
             source = session.get(MediaSource, source_id)
-            source.status = "online"
+            source.status = "partial" if traversal_errors else "online"
             source.last_scanned_at = now
             session.commit()
         result.duplicate_groups = self._count_duplicate_groups()
