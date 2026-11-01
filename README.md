@@ -1,6 +1,6 @@
 # ARCHIVUM
 
-Gestor privado de biblioteca cinematográfica para Windows. Versión de desarrollo 0.2.0.
+Gestor privado de biblioteca cinematográfica para Windows. Versión de desarrollo 0.3.0.
 
 ## Estado de esta entrega
 
@@ -121,6 +121,38 @@ Un archivo solo puede pertenecer a una película. La aplicación rechaza asignac
 duplicadas y registra la operación en el historial. Esta incorporación es manual:
 la identificación automática mediante TMDB y la revisión de candidatos se
 incorporarán en el siguiente bloque.
+
+## Identificación con TMDB
+
+ARCHIVUM permite buscar películas en TMDB y presentar candidatos antes de
+vincularlos a una ficha local. La importación solo se realiza después de una
+confirmación explícita.
+
+1. Crea una cuenta en https://www.themoviedb.org/.
+2. En la configuración de tu cuenta, solicita acceso API y copia el API Read Access Token.
+3. En ARCHIVUM, abre **Configuración**, pega el token y pulsa **Guardar token**.
+4. Pulsa **Probar conexión** para validar la autenticación.
+5. En **Biblioteca**, selecciona una ficha local, busca el título y el año en TMDB.
+6. Selecciona el candidato correcto y confirma la identificación.
+
+El token se guarda mediante el almacén de credenciales del sistema operativo
+(`keyring`); no se escribe en la base de datos ni en `settings.json`. No publiques
+el token ni lo incluyas en capturas, logs o commits.
+
+Al confirmar una coincidencia se importan título localizado y original, fecha,
+año, sinopsis, duración, idioma, países, puntuación TMDB, géneros, identificadores
+TMDB/IMDb y créditos de dirección y reparto. Los carteles y fondos se descargan
+a `artwork/` cuando están disponibles; sus referencias remotas se conservan.
+
+La biblioteca ya catalogada sigue siendo consultable sin conexión. Las búsquedas
+y las descargas de metadatos o imágenes necesitan Internet. La identificación no
+mueve, renombra ni modifica los archivos multimedia originales.
+
+TMDB exige atribución en la aplicación. ARCHIVUM incluye el aviso:
+> This product uses the TMDB API but is not endorsed or certified by TMDB.
+
+Antes de distribuir una compilación pública debe incorporarse también uno de los
+logotipos oficiales aprobados de TMDB en la sección de créditos.
 
 ## Desarrollo
 
