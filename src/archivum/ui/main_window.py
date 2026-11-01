@@ -7,11 +7,13 @@ from PySide6.QtWidgets import (
     QComboBox, QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit,
     QMainWindow, QMessageBox, QPushButton, QScrollArea, QStackedWidget,
     QStatusBar, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QAbstractItemView, QInputDialog,
 )
 
 from archivum.core.config import AppConfig
 from archivum.core.database import Database
 from archivum.core.scanner import MediaScanner
+from archivum.core.library import LibraryIntake
 from archivum.ui.theme import APP_STYLE
 
 
@@ -37,6 +39,7 @@ class MainWindow(QMainWindow):
         self.config = config
         self.database = database
         self.scanner = MediaScanner(database)
+        self.library_intake = LibraryIntake(database)
         self.scan_worker = None
         self.setWindowTitle("ARCHIVUM — Biblioteca cinematográfica")
         self.resize(1280, 820)
@@ -216,18 +219,47 @@ class MainWindow(QMainWindow):
     def _build_library(self):
         page, layout = self._page_shell(
             "Biblioteca",
-            "Catálogo cinematográfico. La importación e identificación automática se incorporarán en las fases 2 y 3."
+            "Fichas cinematográficas y archivos asociados. La incorporación de archivos requiere revisión."
         )
         toolbar = QHBoxLayout()
         self.movie_search = QLineEdit()
         self.movie_search.setPlaceholderText("Buscar por título…")
         self.movie_search.textChanged.connect(self.filter_library)
         toolbar.addWidget(self.movie_search, 1)
-        add_button = QPushButton("Añadir ficha de prueba")
+        add_button = QPushButton("Crear ficha manual")
         add_button.setObjectName("Primary")
         add_button.clicked.connect(self.add_sample_movie)
         toolbar.addWidget(add_button)
         layout.addLayout(toolbar)
+
+        intake_panel = QFrame()
+        intake_panel.setObjectName("Panel")
+        intake_layout = QVBoxLayout(intake_panel)
+        intake_layout.setContentsMargins(16, 14, 16, 14)
+        intake_layout.addWidget(QLabel("Archivos inventariados sin ficha"))
+        self.unassigned_table = QTableWidget(0, 5)
+        self.unassigned_table.setHorizontalHeaderLabels(
+            ["ID", "Archivo", "Carpeta", "Resolución", "Duración"]
+        )
+        self.unassigned_table.setColumnHidden(0, True)
+        self.unassigned_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.unassigned_table.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.unassigned_table.horizontalHeader().setStretchLastSection(True)
+        self.unassigned_table.horizontalHeader().setSectionResizeMode(
+            1, self.unassigned_table.horizontalHeader().ResizeMode.Stretch
+        )
+        intake_layout.addWidget(self.unassigned_table)
+        intake_actions = QHBoxLayout()
+        refresh_unassigned = QPushButton("Actualizar archivos")
+        refresh_unassigned.clicked.connect(self.refresh_unassigned_files)
+        intake_actions.addWidget(refresh_unassigned)
+        create_from_files = QPushButton("Crear película con archivos seleccionados")
+        create_from_files.setObjectName("Primary")
+        create_from_files.clicked.connect(self.create_movie_from_selected_files)
+        intake_actions.addWidget(create_from_files)
+        intake_actions.addStretch()
+        intake_layout.addLayout(intake_actions)
+        layout.addWidget(intake_panel)
 
         self.movie_table = QTableWidget(0, 4)
         self.movie_table.setHorizontalHeaderLabels(["Título", "Título original", "Año", "Estado"])
@@ -238,7 +270,53 @@ class MainWindow(QMainWindow):
         self.movie_table.horizontalHeader().setSectionResizeMode(1, self.movie_table.horizontalHeader().ResizeMode.Stretch)
         layout.addWidget(self.movie_table, 1)
         self.refresh_movie_table()
+        self.refresh_unassigned_files()
         return page
+
+    def refresh_unassigned_files(self):
+        files = self.library_intake.list_unassigned_files()
+        self.unassigned_table.setRowCount(len(files))
+        for row, item in enumerate(files):
+            width, height = item["width"] or "?", item["height"] or "?"
+            resolution = f"{width} × {height}"
+            duration = f"{item['duration_seconds'] / 60:.1f} min" if item["duration_seconds"] else "—"
+            values = [str(item["id"]), item["filename"], item["folder"], resolution, duration]
+            for column, value in enumerate(values):
+                self.unassigned_table.setItem(row, column, QTableWidgetItem(value))
+
+    def create_movie_from_selected_files(self):
+        selected_rows = sorted({
+            index.row() for index in self.unassigned_table.selectionModel().selectedRows()
+        })
+        if not selected_rows:
+            QMessageBox.information(
+                self, "Selecciona archivos", "Selecciona uno o varios archivos sin ficha."
+            )
+            return
+        file_ids = [
+            int(self.unassigned_table.item(row, 0).text()) for row in selected_rows
+        ]
+        title, accepted = QInputDialog.getText(self, "Crear película", "Título de la película:")
+        if not accepted or not title.strip():
+            return
+        year, accepted_year = QInputDialog.getInt(
+            self, "Año de estreno", "Año (0 si se desconoce):", 0, 0, 2200
+        )
+        if not accepted_year:
+            return
+        try:
+            self.library_intake.create_movie_from_files(file_ids, title, year or None)
+        except Exception as exc:
+            QMessageBox.warning(self, "No se pudo crear la película", str(exc))
+            return
+        self.refresh_movie_table()
+        self.refresh_unassigned_files()
+        self.refresh_dashboard()
+        QMessageBox.information(
+            self, "Película creada",
+            f"Se creó «{title.strip()}» y se asociaron {len(file_ids)} archivo(s). "
+            "Los originales no se modificaron."
+        )
 
     def refresh_movie_table(self):
         from sqlalchemy import select
