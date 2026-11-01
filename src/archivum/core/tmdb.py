@@ -255,7 +255,15 @@ def apply_movie_metadata(
                 )
             )
             if existing_art:
+                if artwork_type == "poster":
+                    for previous_art in movie.artwork:
+                        if previous_art.artwork_type == "poster":
+                            previous_art.is_selected = previous_art.id == existing_art.id
                 continue
+            if artwork_type == "poster":
+                for previous_art in movie.artwork:
+                    if previous_art.artwork_type == "poster":
+                        previous_art.is_selected = False
             local_path = None
             if client:
                 suffix = Path(remote_path).suffix or ".jpg"
